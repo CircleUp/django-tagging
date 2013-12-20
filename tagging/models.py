@@ -10,6 +10,7 @@ except NameError:
 from django.contrib.contenttypes import generic
 from django.contrib.contenttypes.models import ContentType
 from django.db import connection, models
+from django.db.utils import IntegrityError
 from django.db.models.query import QuerySet
 from django.utils.translation import ugettext_lazy as _
 
@@ -47,7 +48,16 @@ class TagManager(models.Manager):
         for tag_name in updated_tag_names:
             if tag_name not in current_tag_names:
                 tag, created = self.get_or_create(name=tag_name)
-                TaggedItem._default_manager.create(tag=tag, object=obj)
+                try:
+                    TaggedItem._default_manager.create(tag=tag, object=obj)
+                except IntegrityError:
+                    # there is a race condition between querying for current_tags above
+                    # and calling create() here. another process / transaction
+                    # may have already created this tag. This scenario usually occurs
+                    # with two concurrent calls to a django model's save() method
+                    # if the model has a TagField that is being changed. should be
+                    # harmless to pass here since the TaggedItem already exists
+                    pass
 
     def add_tag(self, obj, tag_name):
         """
